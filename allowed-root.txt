@@ -16,6 +16,7 @@ README.md
 allowed-root.txt
 docs
 gates.yaml
+license-allowlist.txt
 pyproject.toml
 scripts
 tools
