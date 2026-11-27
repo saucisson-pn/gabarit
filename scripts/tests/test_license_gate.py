@@ -93,6 +93,42 @@ def test_license_violation_legacy_field_passes_on_a_known_name() -> None:
     )
 
 
+def test_allowlist_file_is_sorted_bare_spdx() -> None:
+    """The shared allowlist carries bare SPDX identifiers, sorted (docs/gates.md)."""
+    lines = [
+        line.split("#", 1)[0].strip()
+        for line in license_gate.ALLOWLIST_PATH.read_text(encoding="utf-8").splitlines()
+    ]
+    entries = [line for line in lines if line]
+    assert entries == sorted(entries)
+    assert entries == sorted(entries, key=str.casefold)
+    assert all(entry == entry.casefold() for entry in entries)
+
+
+def test_load_allowed_licenses_reads_the_shared_file() -> None:
+    """The allowed set comes from license-allowlist.txt, not from code."""
+    allowed = license_gate.load_allowed_licenses()
+    assert "mit" in allowed
+    assert "gpl-3.0-only" not in allowed
+    assert allowed == license_gate.ALLOWED_LICENSES
+
+
+def test_classifier_names_normalize_to_spdx_before_matching() -> None:
+    """PyPI classifier display names map to SPDX, then match the allowlist."""
+    assert (
+        license_gate.license_violation(
+            expression="", license_classifiers=("Apache Software License",), legacy_license=""
+        )
+        is None
+    )
+    assert (
+        license_gate.license_violation(
+            expression="", license_classifiers=("GPL License",), legacy_license=""
+        )
+        == "GPL License"
+    )
+
+
 def test_run_fails_when_one_distribution_is_off_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """One offender line per distribution; the verdict is fail."""
     monkeypatch.setattr(license_gate, "scan_offenders", lambda: ["fake-pkg 1.0: GPL-3.0-only"])
