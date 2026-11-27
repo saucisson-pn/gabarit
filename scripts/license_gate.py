@@ -5,9 +5,10 @@ the adding agent states the community-validation case in the pull
 request, the reviewer verifies the evidence, and two mechanical
 fronts fail closed in CI on every pull request - the vulnerability
 audit (pip-audit, already in ci.yml) and this license gate. Every
-installed distribution must resolve to a license inside the allowed
-set below; a distribution with no license metadata at all fails
-closed, never passes silently.
+installed distribution must resolve to a license inside
+license-allowlist.txt (the shared allowlist format of docs/gates.md);
+a distribution with no license metadata at all fails closed, never
+passes silently.
 
 The allowed set is configuration, not constitution: an instance
 edits the set in its own repository, and a new dependency with an
@@ -19,42 +20,51 @@ operand is allowed, ``AND`` multiplies and requires every operand,
 """
 
 import importlib.metadata
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from scripts._shared import (
     EXIT_CODE_CRITERIA_UNMET,
     EXIT_CODE_SUCCESS,
+    REPOSITORY_ROOT,
 )
 
 if TYPE_CHECKING:
     import argparse
 
-# SPDX identifiers (casefolded) plus the classifier suffixes some
-# distributions still carry instead of an expression. Configuration
-# lives here on purpose: a new license joins the set through a pull
-# request, not through this gate's verdict (N2).
-ALLOWED_LICENSES = frozenset(
-    {
-        "mit",
-        "apache-2.0",
-        "bsd-2-clause",
-        "bsd-3-clause",
-        "0bsd",
-        "isc",
-        "mpl-2.0",
-        "unlicense",
-        "psf-2.0",
-        "mit license",
-        "apache software license",
-        "bsd license",
-        "bsd 2-clause license",
-        "bsd 3-clause license",
-        "isc license",
-        "mozilla public license 2.0 (mpl 2.0)",
-        "python software foundation license",
-        "the unlicense (unlicense)",
-    }
-)
+ALLOWLIST_PATH = REPOSITORY_ROOT / "license-allowlist.txt"
+
+# PyPI license classifiers are display names, not SPDX identifiers;
+# this table is format normalization, not admission policy - which
+# licenses are allowed lives only in license-allowlist.txt (N2).
+CLASSIFIER_TO_SPDX = {
+    "mit license": "mit",
+    "apache software license": "apache-2.0",
+    "bsd license": "bsd-3-clause",
+    "bsd 2-clause license": "bsd-2-clause",
+    "bsd 3-clause license": "bsd-3-clause",
+    "isc license": "isc",
+    "mozilla public license 2.0 (mpl 2.0)": "mpl-2.0",
+    "python software foundation license": "psf-2.0",
+    "the unlicense (unlicense)": "unlicense",
+}
+
+
+def load_allowed_licenses(path: Path = ALLOWLIST_PATH) -> frozenset[str]:
+    """Read the shared allowlist file.
+
+    Format (docs/gates.md): bare SPDX identifiers, one per line,
+    sorted; comment lines start with #, blank lines are ignored.
+    """
+    allowed = set()
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        entry = line.split("#", 1)[0].strip()
+        if entry:
+            allowed.add(entry.casefold())
+    return frozenset(allowed)
+
+
+ALLOWED_LICENSES = load_allowed_licenses()
 
 
 def split_outside_parentheses(text: str, separator: str) -> list[str] | None:
@@ -119,11 +129,16 @@ def license_violation(
     if expression:
         return None if expression_is_allowed(expression) else expression
     if license_classifiers:
-        if any(name.casefold() in ALLOWED_LICENSES for name in license_classifiers):
+        normalized = [
+            CLASSIFIER_TO_SPDX.get(name.casefold(), name.casefold()) for name in license_classifiers
+        ]
+        if any(name in ALLOWED_LICENSES for name in normalized):
             return None
         return "; ".join(license_classifiers)
     if legacy_license:
-        return None if legacy_license.casefold() in ALLOWED_LICENSES else legacy_license
+        candidate = legacy_license.casefold()
+        candidate = CLASSIFIER_TO_SPDX.get(candidate, candidate)
+        return None if candidate in ALLOWED_LICENSES else legacy_license
     return "no license metadata at all"
 
 
@@ -158,9 +173,9 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Fail on any installed license outside the allowed set (ADR-0008 N2).",
         description=(
             "License gate (ADR-0008 N2): every installed distribution must"
-            " resolve to a license inside the configured allowed set of"
-            " scripts/license_gate.py; anything off-list - or with no"
-            " license metadata at all - fails the gate before review starts."
+            " resolve to a license inside license-allowlist.txt; anything"
+            " off-list - or with no license metadata at all - fails the"
+            " gate before review starts."
         ),
     )
     subparser.set_defaults(runner=run)
@@ -175,7 +190,7 @@ def run(*, arguments: argparse.Namespace) -> int:
     if offenders:
         print(
             f"license gate: {len(offenders)} distribution(s) outside the allowed set"
-            " (the set lives in scripts/license_gate.py, N2: configuration,"
+            " (the set lives in license-allowlist.txt, N2: configuration,"
             " not constitution)."
         )
         return EXIT_CODE_CRITERIA_UNMET
