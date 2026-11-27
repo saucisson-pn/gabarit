@@ -1,0 +1,13 @@
+# Allowed dependency licenses (ADR-0008 N2, ADR-0012 shared format).
+# Bare SPDX identifiers, one per line, sorted. Every license-gate
+# flavor (python, node) consumes this same file; a new license joins
+# the set through a pull request, not through a gate's verdict.
+0bsd
+apache-2.0
+bsd-2-clause
+bsd-3-clause
+isc
+mit
+mpl-2.0
+psf-2.0
+unlicense
